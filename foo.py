@@ -32,11 +32,32 @@ ALGORITHMS = {
 @click.option('--log-interval', type=int, default=100)
 @click.option('--wandb/--no-wandb', 'use_wandb', default=True,
               help='Enable WandB logging (default: True)')
-def main(*, algorithm: str, render: bool, use_jax: bool, total_timesteps: int, env: str, log_interval: int, use_wandb: bool) -> None:
+def main(*, algorithm: str, render: bool, use_jax: bool, total_timesteps: int, env: str,
+         log_interval: int, use_wandb: bool) -> None:
+    learn_kwargs = {
+        'total_timesteps': total_timesteps,
+        'progress_bar': True,
+        'log_interval': log_interval,
+    }
+    if use_wandb:
+        wandb_run = wandb.init(
+            config=learn_kwargs,
+            sync_tensorboard=True,
+            save_code=True,
+            monitor_gym=True,
+        )
+        learn_kwargs['callback'] = wandb.integration.sb3.WandbCallback(
+            gradient_save_freq=100,
+            verbose=2,
+        )
+    else:
+        wandb_run = None
+
     print('Starting the environment setup')
     render_mode = 'human' if render else None
     env = gym.make(env, render_mode=render_mode)
     env = stable_baselines3.common.monitor.Monitor(env)
+    env = stable_baselines3.common.vec_env.DummyVecEnv([lambda: env])
     print(f'Environment created: {env}')
 
     # Select the appropriate implementation based on jax flag
@@ -45,24 +66,11 @@ def main(*, algorithm: str, render: bool, use_jax: bool, total_timesteps: int, e
 
     print(f'Initializing the {algorithm} model')
     model_class = ALGORITHMS[algorithm][backend]
-    model: stable_baselines3.common.base_class.BaseAlgorithm = model_class('MlpPolicy', env,
-                                                                           verbose=1)
+    model: stable_baselines3.common.base_class.BaseAlgorithm = model_class(
+        'MlpPolicy', env, verbose=1,
+        tensorboard_log=(f'runs/{wandb_run.id}' if wandb_run else None)
+    )
     print('Starting training')
-    learn_kwargs = {
-        'total_timesteps': total_timesteps,
-        'progress_bar': True,
-        'log_interval': log_interval,
-    }
-    if use_wandb:
-        wandb.init(
-            config=learn_kwargs,
-            sync_tensorboard=True,
-            save_code=True,
-        )
-        learn_kwargs['callback'] = wandb.integration.sb3.WandbCallback(
-            gradient_save_freq=100,
-            verbose=2,
-        )
 
     model.learn(**learn_kwargs)
     print('Training completed')
