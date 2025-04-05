@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import pathlib
+
 import click
 import gymnasium as gym
 import wandb.integration.sb3
@@ -46,6 +49,15 @@ def main(*, algorithm: str, render: bool, use_jax: bool, total_timesteps: int, e
             save_code=True,
             monitor_gym=True,
         )
+        try:
+            tmux_pane_guid = os.environ['TMUX_PANE_GUID']
+        except KeyError:
+            pass
+        else:
+            try:
+                pathlib.Path(f'/tmp/wandb_url_{tmux_pane_guid}').write_text(wandb_run.url)
+            except Exception:
+                pass
         learn_kwargs['callback'] = wandb.integration.sb3.WandbCallback(
             gradient_save_freq=100,
             verbose=2,
