@@ -138,19 +138,19 @@ class PPOPolicy(BaseJaxPolicy):
         self.activation_fn = activation_fn
         if net_arch is not None:
             if isinstance(net_arch, list):
-                self.net_arch_pi = self.net_arch_vf = net_arch
+                self.net_arch_pi = self.net_arch_critic = net_arch
             else:
                 assert isinstance(net_arch, dict)
                 self.net_arch_pi = net_arch["pi"]
-                self.net_arch_vf = net_arch["vf"]
+                self.net_arch_critic = net_arch["critic"]
         else:
-            self.net_arch_pi = self.net_arch_vf = [64, 64]
+            self.net_arch_pi = self.net_arch_critic = [64, 64]
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key: jax.Array, lr_schedule: Schedule, max_grad_norm: float) -> jax.Array:
-        key, actor_key, vf_key = jax.random.split(key, 3)
+        key, actor_key, critic_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
         # Initialize noise
@@ -210,11 +210,11 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.vf = Critic(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
+        self.critic = Critic(net_arch=self.net_arch_critic, activation_fn=self.activation_fn)
 
-        self.vf_state = TrainState.create(
-            apply_fn=self.vf.apply,
-            params=self.vf.init({"params": vf_key}, obs),
+        self.critic_state = TrainState.create(
+            apply_fn=self.critic.apply,
+            params=self.critic.init({"params": critic_key}, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 self.optimizer_class(
@@ -225,7 +225,7 @@ class PPOPolicy(BaseJaxPolicy):
         )
 
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
-        self.vf.apply = jax.jit(self.vf.apply)  # type: ignore[method-assign]
+        self.critic.apply = jax.jit(self.critic.apply)  # type: ignore[method-assign]
 
         return key
 
@@ -247,13 +247,13 @@ class PPOPolicy(BaseJaxPolicy):
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
     def predict_all(self, observation: np.ndarray, key: jax.Array) -> np.ndarray:
-        return self._predict_all(self.actor_state, self.vf_state, observation, key)
+        return self._predict_all(self.actor_state, self.critic_state, observation, key)
 
     @staticmethod
     @jax.jit
-    def _predict_all(actor_state, vf_state, observations, key):
+    def _predict_all(actor_state, critic_state, observations, key):
         dist = actor_state.apply_fn(actor_state.params, observations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        values = vf_state.apply_fn(vf_state.params, observations).flatten()
+        values = critic_state.apply_fn(critic_state.params, observations).flatten()
         return actions, log_probs, values

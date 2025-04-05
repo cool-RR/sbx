@@ -43,14 +43,14 @@ class PPO(OnPolicyAlgorithmJax):
     :param gae_lambda: Factor for trade-off of bias vs variance for Generalized Advantage Estimator
     :param clip_range: Clipping parameter, it can be a function of the current progress
         remaining (from 1 to 0).
-    :param clip_range_vf: Clipping parameter for the value function,
+    :param clip_range_critic: Clipping parameter for the value function,
         it can be a function of the current progress remaining (from 1 to 0).
         This is a parameter specific to the OpenAI implementation. If None is passed (default),
         no clipping will be done on the value function.
         IMPORTANT: this clipping depends on the reward scaling.
     :param normalize_advantage: Whether to normalize or not the advantage
     :param ent_coef: Entropy coefficient for the loss calculation
-    :param vf_coef: Value function coefficient for the loss calculation
+    :param critic_coef: Value function coefficient for the loss calculation
     :param max_grad_norm: The maximum value for the gradient clipping
     :param use_sde: Whether to use generalized State Dependent Exploration (gSDE)
         instead of action noise exploration (default: False)
@@ -88,10 +88,10 @@ class PPO(OnPolicyAlgorithmJax):
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
         clip_range: Union[float, Schedule] = 0.2,
-        clip_range_vf: Union[None, float, Schedule] = None,
+        clip_range_critic: Union[None, float, Schedule] = None,
         normalize_advantage: bool = True,
         ent_coef: float = 0.0,
-        vf_coef: float = 0.5,
+        critic_coef: float = 0.5,
         max_grad_norm: float = 0.5,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
@@ -111,7 +111,7 @@ class PPO(OnPolicyAlgorithmJax):
             gamma=gamma,
             gae_lambda=gae_lambda,
             ent_coef=ent_coef,
-            vf_coef=vf_coef,
+            critic_coef=critic_coef,
             max_grad_norm=max_grad_norm,
             # Note: gSDE is not properly implemented,
             use_sde=use_sde,
@@ -162,7 +162,7 @@ class PPO(OnPolicyAlgorithmJax):
         self.batch_size = batch_size
         self.n_epochs = n_epochs
         self.clip_range = clip_range
-        self.clip_range_vf = clip_range_vf
+        self.clip_range_critic = clip_range_critic
         self.normalize_advantage = normalize_advantage
         self.target_kl = target_kl
 
@@ -185,22 +185,22 @@ class PPO(OnPolicyAlgorithmJax):
             self.key, ent_key = jax.random.split(self.key, 2)
 
             self.actor = self.policy.actor
-            self.vf = self.policy.vf
+            self.critic = self.policy.critic
 
         # Initialize schedules for policy/value clipping
         self.clip_range_schedule = get_schedule_fn(self.clip_range)
-        # if self.clip_range_vf is not None:
-        #     if isinstance(self.clip_range_vf, (float, int)):
-        #         assert self.clip_range_vf > 0, ("`clip_range_vf` must be positive, "
-        #                                         "pass `None` to deactivate vf clipping")
+        # if self.clip_range_critic is not None:
+        #     if isinstance(self.clip_range_critic, (float, int)):
+        #         assert self.clip_range_critic > 0, ("`clip_range_critic` must be positive, "
+        #                                         "pass `None` to deactivate critic clipping")
         #
-        #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
+        #     self.clip_range_critic = get_schedule_fn(self.clip_range_critic)
 
     @staticmethod
     @partial(jax.jit, static_argnames=["normalize_advantage"])
     def _one_update(
         actor_state: TrainState,
-        vf_state: TrainState,
+        critic_state: TrainState,
         observations: np.ndarray,
         actions: np.ndarray,
         advantages: np.ndarray,
@@ -208,7 +208,7 @@ class PPO(OnPolicyAlgorithmJax):
         old_log_prob: np.ndarray,
         clip_range: float,
         ent_coef: float,
-        vf_coef: float,
+        critic_coef: float,
         normalize_advantage: bool = True,
     ):
         # Normalize advantage
@@ -242,14 +242,15 @@ class PPO(OnPolicyAlgorithmJax):
 
         def critic_loss(params):
             # Value loss using the TD(gae_lambda) target
-            vf_values = vf_state.apply_fn(params, observations).flatten()
-            return ((returns - vf_values) ** 2).mean()
+            critic_values = critic_state.apply_fn(params, observations).flatten()
+            return ((returns - critic_values) ** 2).mean()
 
-        vf_loss_value, grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
-        vf_state = vf_state.apply_gradients(grads=grads)
+        critic_loss_value, grads = jax.value_and_grad(critic_loss,
+                                                      has_aux=False)(critic_state.params)
+        critic_state = critic_state.apply_gradients(grads=grads)
 
-        # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return (actor_state, vf_state), (pg_loss_value, vf_loss_value)
+        # loss = policy_loss + ent_coef * entropy_loss + critic_coef * value_loss
+        return (actor_state, critic_state), (pg_loss_value, critic_loss_value)
 
     def train(self) -> None:
         """
@@ -270,10 +271,10 @@ class PPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = \
+                (self.policy.actor_state, self.policy.critic_state), (pg_loss, value_loss) = \
                                                                                    self._one_update(
                     actor_state=self.policy.actor_state,
-                    vf_state=self.policy.vf_state,
+                    critic_state=self.policy.critic_state,
                     observations=rollout_data.observations.numpy(),
                     actions=actions,
                     advantages=rollout_data.advantages.numpy(),
@@ -281,7 +282,7 @@ class PPO(OnPolicyAlgorithmJax):
                     old_log_prob=rollout_data.old_log_prob.numpy(),
                     clip_range=clip_range,
                     ent_coef=self.ent_coef,
-                    vf_coef=self.vf_coef,
+                    critic_coef=self.critic_coef,
                     normalize_advantage=self.normalize_advantage,
                 )
 
@@ -307,8 +308,8 @@ class PPO(OnPolicyAlgorithmJax):
             pass
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
-        # if self.clip_range_vf is not None:
-        #     self.logger.record("train/clip_range_vf", clip_range_vf)
+        # if self.clip_range_critic is not None:
+        #     self.logger.record("train/clip_range_critic", clip_range_critic)
 
     def learn(
         self: PPOSelf,

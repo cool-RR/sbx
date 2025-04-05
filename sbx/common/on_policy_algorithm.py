@@ -20,7 +20,7 @@ OnPolicyAlgorithmSelf = TypeVar("OnPolicyAlgorithmSelf", bound="OnPolicyAlgorith
 class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
     policy: PPOPolicy  # type: ignore[assignment]
     actor: Actor
-    vf: Critic
+    critic: Critic
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         gamma: float,
         gae_lambda: float,
         ent_coef: float,
-        vf_coef: float,
+        critic_coef: float,
         max_grad_norm: float,
         use_sde: bool,
         sde_sample_freq: int,
@@ -52,7 +52,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             gamma=gamma,
             gae_lambda=gae_lambda,
             ent_coef=ent_coef,
-            vf_coef=vf_coef,
+            vf_coef=critic_coef,
             max_grad_norm=max_grad_norm,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
@@ -66,6 +66,10 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         )
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
+
+    @property
+    def critic_coef(self):
+        return self.vf_coef
 
     def _get_torch_save_params(self):
         return [], []
@@ -175,8 +179,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                 ):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
                     terminal_value = np.array(
-                        self.vf.apply(  # type: ignore[union-attr]
-                            self.policy.vf_state.params,
+                        self.critic.apply(  # type: ignore[union-attr]
+                            self.policy.critic_state.params,
                             terminal_obs,
                         ).flatten()
                     ).item()
@@ -194,8 +198,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             self._last_episode_starts = dones
 
         values = np.array(
-            self.vf.apply(  # type: ignore[union-attr]
-                self.policy.vf_state.params,
+            self.critic.apply(  # type: ignore[union-attr]
+                self.policy.critic_state.params,
                 self.policy.prepare_obs(new_obs)[0],  # type: ignore[arg-type]
             ).flatten()
         )
