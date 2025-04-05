@@ -21,7 +21,8 @@ class PPO(OnPolicyAlgorithmJax):
     Proximal Policy Optimization algorithm (PPO) (clip version)
 
     Paper: https://arxiv.org/abs/1707.06347
-    Code: This implementation borrows code from OpenAI Spinning Up (https://github.com/openai/spinningup/)
+    Code: This implementation borrows code from OpenAI Spinning Up
+    (https://github.com/openai/spinningup/)
     https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail and
     Stable Baselines (PPO2 from https://github.com/hill-a/stable-baselines)
 
@@ -32,7 +33,8 @@ class PPO(OnPolicyAlgorithmJax):
     :param learning_rate: The learning rate, it can be a function
         of the current progress remaining (from 1 to 0)
     :param n_steps: The number of steps to run for each environment per update
-        (i.e. rollout buffer size is n_steps * n_envs where n_envs is number of environment copies running in parallel)
+        (i.e. rollout buffer size is n_steps * n_envs where n_envs is number of environment
+        copies running in parallel)
         NOTE: n_steps * n_envs must be greater than 1 (because of the advantage normalization)
         See https://github.com/pytorch/pytorch/issues/29372
     :param batch_size: Minibatch size
@@ -60,8 +62,8 @@ class PPO(OnPolicyAlgorithmJax):
         By default, there is no limit on the kl div.
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
     :param policy_kwargs: additional arguments to be passed to the policy on creation
-    :param verbose: Verbosity level: 0 for no output, 1 for info messages (such as device or wrappers used), 2 for
-        debug messages
+    :param verbose: Verbosity level: 0 for no output, 1 for info messages (such as device or
+                    wrappers used), 2 for debug messages
     :param seed: Seed for the pseudo random generators
     :param device: Device (cpu, cuda, ...) on which the code should be run.
         Setting it to auto, the code will be run on the GPU if possible.
@@ -133,7 +135,8 @@ class PPO(OnPolicyAlgorithmJax):
         if normalize_advantage:
             assert (
                 batch_size > 1
-            ), "`batch_size` must be greater than 1. See https://github.com/DLR-RM/stable-baselines3/issues/440"
+            ), ("`batch_size` must be greater than 1. See "
+                "https://github.com/DLR-RM/stable-baselines3/issues/440")
 
         if self.env is not None:
             # Check that `n_steps * n_envs > 1` to avoid NaN
@@ -141,17 +144,19 @@ class PPO(OnPolicyAlgorithmJax):
             buffer_size = self.env.num_envs * self.n_steps
             assert buffer_size > 1 or (
                 not normalize_advantage
-            ), f"`n_steps * n_envs` must be greater than 1. Currently n_steps={self.n_steps} and n_envs={self.env.num_envs}"
+            ), (f"`n_steps * n_envs` must be greater than 1. Currently n_steps={self.n_steps} "
+                f"and n_envs={self.env.num_envs}")
             # Check that the rollout buffer size is a multiple of the mini-batch size
             untruncated_batches = buffer_size // batch_size
             if buffer_size % batch_size > 0:
                 warnings.warn(
-                    f"You have specified a mini-batch size of {batch_size},"
-                    f" but because the `RolloutBuffer` is of size `n_steps * n_envs = {buffer_size}`,"
-                    f" after every {untruncated_batches} untruncated mini-batches,"
-                    f" there will be a truncated mini-batch of size {buffer_size % batch_size}\n"
-                    f"We recommend using a `batch_size` that is a factor of `n_steps * n_envs`.\n"
-                    f"Info: (n_steps={self.n_steps} and n_envs={self.env.num_envs})"
+                    f"You have specified a mini-batch size of {batch_size}, "
+                    f"but because the `RolloutBuffer` is of size "
+                    f"`n_steps * n_envs = {buffer_size}`, after every {untruncated_batches} "
+                    f"untruncated mini-batches, there will be a truncated mini-batch of size "
+                    f"{buffer_size % batch_size}\n We recommend using a `batch_size` that is a "
+                    f"factor of `n_steps * n_envs`.\n Info: (n_steps={self.n_steps} and "
+                    f"n_envs={self.env.num_envs})"
                 )
 
         self.batch_size = batch_size
@@ -186,7 +191,8 @@ class PPO(OnPolicyAlgorithmJax):
         self.clip_range_schedule = get_schedule_fn(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
-        #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
+        #         assert self.clip_range_vf > 0, ("`clip_range_vf` must be positive, "
+        #                                         "pass `None` to deactivate vf clipping")
         #
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
@@ -257,14 +263,15 @@ class PPO(OnPolicyAlgorithmJax):
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
-            for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
+            for rollout_data in self.rollout_buffer.get(self.batch_size):
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
                     actions = rollout_data.actions.flatten().numpy().astype(np.int32)
                 else:
                     actions = rollout_data.actions.numpy()
 
-                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = self._one_update(
+                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = \
+                                                                                   self._one_update(
                     actor_state=self.policy.actor_state,
                     vf_state=self.policy.vf_state,
                     observations=rollout_data.observations.numpy(),
