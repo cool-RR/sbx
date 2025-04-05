@@ -218,11 +218,11 @@ class PPO(OnPolicyAlgorithmJax):
 
         def actor_loss(params):
             dist = actor_state.apply_fn(params, observations)
-            log_prob = dist.log_prob(actions)
+            chosen_action_log_p_by_timestep = dist.log_prob(actions)
             entropy = dist.entropy()
 
             # ratio between old and new policy, should be one at the first iteration
-            ratio = jnp.exp(log_prob - old_log_prob)
+            ratio = jnp.exp(chosen_action_log_p_by_timestep - old_log_prob)
             # clipped surrogate loss
             policy_loss_1 = advantages * ratio
             policy_loss_2 = advantages * jnp.clip(ratio, 1 - clip_range, 1 + clip_range)
